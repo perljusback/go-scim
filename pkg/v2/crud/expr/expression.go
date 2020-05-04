@@ -8,6 +8,7 @@ const (
 	relationalOp
 	literal
 	parenthesis
+	complex
 )
 
 type (
