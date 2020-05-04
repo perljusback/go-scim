@@ -20,7 +20,7 @@ import (
 //	                primary true
 //
 func CompileFilter(filter string) (*Expression, error) {
-	compiler := &filterCompiler{
+		compiler := &filterCompiler{
 		scan:    &filterScanner{},
 		data:    append(copyOf(filter), 0, 0),
 		off:     0,
@@ -65,10 +65,9 @@ func CompileFilter(filter string) (*Expression, error) {
 			}
 			if len(compiler.opStack) == 0 {
 				return nil, fmt.Errorf("%w: mismatched parenthesis", spec.ErrInvalidFilter)
-			} else {
-				// discard the left parenthesis
-				compiler.opStack = compiler.opStack[:len(compiler.opStack)-1]
 			}
+			// discard the left parenthesis
+			compiler.opStack = compiler.opStack[:len(compiler.opStack)-1]
 			break
 
 		case pushOpInsufficientPriority:
@@ -99,7 +98,7 @@ func CompileFilter(filter string) (*Expression, error) {
 	}
 
 	// assertion check
-	if len(compiler.rsStack) != 1 || !compiler.rsStack[0].IsOperator() {
+	if len(compiler.rsStack) != 1 || !compiler.rsStack[0].IsOperator() && !compiler.rsStack[0].IsComplex() {
 		panic("flaw in algorithm")
 	}
 
@@ -137,6 +136,45 @@ var (
 	// function to return operator cardinality
 	opCardinality = func(op string) int {
 		switch op {
+		case Not, Pr:
+			return 1
+		case And, Or, Eq, Ne, Sw, Ew, Co, Gt, Ge, Lt, Le:
+			return 2
+		default:
+			panic("not an operator")
+		}
+	}
+)
+
+// priority and precedence definitions
+var (
+	// function to return the relative priority
+	opPriority = func(op string) int {
+		switch strings.ToLower(op) {
+		case And, Or, Not:
+			return 50
+		case Eq, Ne, Sw, Ew, Co, Pr, Gt, Ge, Lt, Le:
+			return 100
+		case LeftParen:
+			return 25
+		default:
+			panic("not an operator")
+		}
+	}
+	// function to return true if left associative, false if right associative
+	opLeftAssociative = func(op string) bool {
+		switch strings.ToLower(op) {
+		case Not:
+			return false
+		case And, Or, Eq, Ne, Sw, Ew, Co, Pr, Gt, Ge, Lt, Le:
+			return true
+		default:
+			panic("not an operator")
+		}
+	}
+	// function to return operator cardinality
+	opCardinality = func(op string) int {
+		switch strings.ToLower(op) {
 		case Not, Pr:
 			return 1
 		case And, Or, Eq, Ne, Sw, Ew, Co, Gt, Ge, Lt, Le:
@@ -215,7 +253,7 @@ func (c *filterCompiler) pushBuildResult(step *Expression) error {
 		head, err := CompilePath(step.token)
 		if err != nil {
 			return fmt.Errorf("%w: invalid path in filter", spec.ErrInvalidFilter)
-		} else if head.ContainsFilter() {
+		} else if head.ContainsFilter() && !head.IsComplex() {
 			return fmt.Errorf("%w: illegal nested filter", spec.ErrInvalidFilter)
 		}
 		c.rsStack = append(c.rsStack, head)
@@ -504,7 +542,7 @@ func (fs *filterScanner) stateEndPredicate(scan *filterScanner, c byte) int {
 		scan.step = fs.stateOpO
 		return scanFilterBeginOp
 	case 0:
-		scan.step = fs.stateEof
+		scan.step = fs.stateEOF
 		return scanFilterEnd
 	}
 
@@ -578,6 +616,11 @@ func (fs *filterScanner) stateInPath(scan *filterScanner, c byte) int {
 	if c == ' ' {
 		scan.step = fs.stateBeginOp
 		return scanFilterEndPath
+	}
+
+	if c == '[' {
+		scan.step = fs.stateInComplexPath
+		return scanFilterContinue
 	}
 
 	if c == '.' || c == ':' || isNonFirstAlphabet(c) {
@@ -956,7 +999,7 @@ func (fs *filterScanner) stateEndLiteral(scan *filterScanner, c byte) int {
 	}
 
 	if c == 0 {
-		scan.step = fs.stateEof
+		scan.step = fs.stateEOF
 		return scanFilterEnd
 	}
 
@@ -987,7 +1030,7 @@ func (fs *filterScanner) stateEndStringLiteral(scan *filterScanner, c byte) int 
 	case ')':
 		return scanFilterInsertSpace
 	case 0:
-		scan.step = fs.stateEof
+		scan.step = fs.stateEOF
 		return scanFilterEndLiteral
 	}
 
@@ -1003,7 +1046,7 @@ func (fs *filterScanner) stateInNonStringLiteral(scan *filterScanner, c byte) in
 	case ')':
 		return scanFilterInsertSpace
 	case 0:
-		scan.step = fs.stateEof
+		scan.step = fs.stateEOF
 		return scanFilterEndLiteral
 	default:
 		return scanFilterContinue
@@ -1065,7 +1108,7 @@ func (fs *filterScanner) stateInStringEscU123(_ *filterScanner, c byte) int {
 }
 
 // Sink state where the scanner has ended.
-func (fs *filterScanner) stateEof(_ *filterScanner, _ byte) int {
+func (fs *filterScanner) stateEOF(_ *filterScanner, _ byte) int {
 	if fs.err != nil {
 		return scanFilterError
 	}
@@ -1098,3 +1141,4 @@ func (fs *filterScanner) error(c byte, hint string) int {
 func (fs *filterScanner) errInvalidOperator(c byte) int {
 	return fs.error(c, "invalid operator")
 }
+
