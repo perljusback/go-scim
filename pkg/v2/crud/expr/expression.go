@@ -50,6 +50,11 @@ func (e *Expression) IsPath() bool {
 	return e.typ == path
 }
 
+// IsComplex returns true if this Expression holds a SCIM filter complex attribute.
+func (e *Expression) IsComplex() bool {
+	return e.typ == complex
+}
+
 // IsOperator returns true if this Expression holds a SCIM filter operator (either logical or relational).
 func (e *Expression) IsOperator() bool {
 	return e.IsLogicalOperator() || e.IsRelationalOperator()
